@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Comprador TIANLI</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1c2430;--mut:#6b7686;--line:#e3e7ee;--acc:#0f6b4f;--acc2:#e8f4ef;--bad:#b42318;--badbg:#fdecea}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);display:flex;flex-direction:column}
+.home{flex:1;display:flex;align-items:center;justify-content:center;padding:24px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:32px 28px;max-width:460px;width:100%;text-align:center;box-shadow:0 6px 24px rgba(20,30,50,.06)}
+.brand{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-bottom:6px}
+h1{font-size:26px;margin:0 0 6px}
+p.sub{margin:0 0 22px;color:var(--mut)}
+button{font:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:9px 16px}
+button.main{background:var(--acc);border-color:var(--acc);color:#fff;font-size:16px;font-weight:600;padding:13px 26px;width:100%}
+button.main:hover{filter:brightness(1.08)}
+button:disabled{opacity:.6;cursor:default}
+.timer{font-variant-numeric:tabular-nums;font-size:46px;font-weight:700;letter-spacing:.02em;margin:6px 0 2px}
+.msg{color:var(--mut);font-size:14px;min-height:21px}
+.bar{height:6px;background:var(--acc2);border-radius:99px;overflow:hidden;margin:16px 0 4px}
+.bar i{display:block;height:100%;width:35%;background:var(--acc);border-radius:99px;animation:slide 1.3s ease-in-out infinite}
+@keyframes slide{0%{margin-left:-35%}100%{margin-left:100%}}
+.err{background:var(--badbg);color:var(--bad);border-radius:9px;padding:12px 14px;margin-top:16px;text-align:left;font-size:14px}
+.hint{font-size:12px;color:var(--mut);margin-top:14px}
+.hide{display:none!important}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 14px;background:var(--card);border-bottom:1px solid var(--line)}
+.top b{margin-right:auto}
+.top span{color:var(--mut);font-size:13px}
+.top button{padding:6px 12px;font-size:13px}
+iframe{flex:1;width:100%;border:0;background:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#10151c;--card:#18202a;--ink:#e8edf3;--mut:#93a0b1;--line:#2a3441;--acc:#2fa37c;--acc2:#16322a;--bad:#ff8a80;--badbg:#3a1d1b}button{background:#1d2733}button.main{background:var(--acc);color:#06130e}}
+</style>
+</head>
+<body>
+
+<div id="home" class="home">
+  <div class="card">
+    <div class="brand">Top Neumáticos · Compras</div>
+    <h1>Comprador TIANLI</h1>
+    <p class="sub">Trae los precios FOB de las hojas AG, OTR, Forestry y MH, los cruza con Odoo y arma el catálogo con carrito.</p>
+
+    <div id="idle">
+      <button id="go" class="main">Generar comprador</button>
+      <div id="last" class="hint"></div>
+    </div>
+
+    <div id="run" class="hide">
+      <div class="timer" id="t">00:00.0</div>
+      <div class="msg">Leyendo las hojas, consultando Odoo y armando el comprador…</div>
+      <div class="bar"><i></i></div>
+      <div class="hint">No cierres esta pestaña. Puede tardar un rato.</div>
+    </div>
+
+    <div id="err" class="err hide"></div>
+    <div id="retry" class="hide" style="margin-top:12px"><button id="go2" class="main">Reintentar</button></div>
+  </div>
+</div>
+
+<div id="viewer" style="flex:1;display:none;flex-direction:column;min-height:0">
+  <div class="top">
+    <b>TIANLI</b><span id="info"></span>
+    <button id="regen">↻ Regenerar</button>
+    <button id="dl">⬇ Descargar HTML</button>
+    <button id="back">← Inicio</button>
+  </div>
+  <iframe id="frame" title="Comprador TIANLI"></iframe>
+</div>
+
+<script>
+// ====== CONFIG ======
+// Webhook de n8n (el workflow tiene que estar ACTIVO). Es la URL "Production" del nodo Webhook.
+var WEBHOOK = 'https://envy-recollect-last.ngrok-free.dev/webhook/Comprador-Tianli';
+var TIMEOUT_MS = 5 * 60 * 1000;   // corta a los 5 minutos
+// =====================
+
+var $ = function (id) { return document.getElementById(id); };
+var timer = null, t0 = 0, ctrl = null, lastHtml = '';
+
+function fmtT(ms) {
+  var s = ms / 1000, m = Math.floor(s / 60), r = s - m * 60;
+  return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r.toFixed(1);
+}
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+function showLast() {
+  var l = lsGet('tianli_last_secs');
+  $('last').textContent = l ? 'La última vez tardó ' + l + ' s.' : '';
+}
+showLast();
+
+function setState(s) {          // 'idle' | 'run' | 'error' | 'view'
+  $('home').classList.toggle('hide', s === 'view');
+  $('viewer').style.display = s === 'view' ? 'flex' : 'none';
+  $('idle').classList.toggle('hide', s !== 'idle');
+  $('run').classList.toggle('hide', s !== 'run');
+  $('err').classList.toggle('hide', s !== 'error');
+  $('retry').classList.toggle('hide', s !== 'error');
+}
+function fail(txt) {
+  clearInterval(timer);
+  $('err').textContent = txt;
+  setState('error');
+}
+
+function generar() {
+  setState('run');
+  t0 = Date.now();
+  $('t').textContent = fmtT(0);
+  clearInterval(timer);
+  timer = setInterval(function () { $('t').textContent = fmtT(Date.now() - t0); }, 100);
+
+  ctrl = new AbortController();
+  var to = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+
+  fetch(WEBHOOK, { method: 'GET', headers: { 'ngrok-skip-browser-warning': '1' }, signal: ctrl.signal })
+    .then(function (r) {
+      if (!r.ok) throw new Error('El servidor respondió ' + r.status + '. Revisá que el workflow esté activo y sin errores en n8n.');
+      return r.text();
+    })
+    .then(function (html) {
+      clearTimeout(to);
+      if (!/<title>Comprador TIANLI<\/title>/.test(html)) {
+        throw new Error('La respuesta no es el comprador (puede ser un error del workflow o la pantalla de ngrok). Mirá la ejecución en n8n.');
+      }
+      clearInterval(timer);
+      var ms = Date.now() - t0, secs = (ms / 1000).toFixed(1);
+      lsSet('tianli_last_secs', secs);
+      lastHtml = html;
+      $('info').textContent = 'generado en ' + secs.replace('.', ',') + ' s · ' + new Date().toLocaleString('es-AR');
+      $('frame').srcdoc = html;
+      setState('view');
+    })
+    .catch(function (e) {
+      clearTimeout(to);
+      if (e && e.name === 'AbortError') return fail('Pasaron más de 5 minutos sin respuesta. Revisá la ejecución en n8n.');
+      var m = (e && e.message) || String(e);
+      if (/Failed to fetch|NetworkError|Load failed/i.test(m)) {
+        m = 'No pude conectar con n8n. Verificá que n8n y ngrok estén corriendo, que el workflow esté activo y que el Webhook permita CORS (Options → Allowed Origins).';
+      }
+      fail(m);
+    });
+}
+
+$('go').onclick = generar;
+$('go2').onclick = generar;
+$('regen').onclick = function () { $('frame').srcdoc = ''; generar(); };
+$('back').onclick = function () { showLast(); setState('idle'); };
+$('dl').onclick = function () {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lastHtml], { type: 'text/html' }));
+  a.download = 'comprador_tianli.html';
+  document.body.appendChild(a); a.click(); a.remove();
+};
+</script>
+</body>
+</html>
